@@ -1,6 +1,7 @@
 <?php
-// Seeds real course content (topic pages, a quiz with real questions, and a
-// discussion forum with replies) per mata kuliah from the shared
+// Seeds real course content (topic pages, a quiz with real questions, a
+// discussion forum with replies, and a file-upload assignment with a few
+// sample submissions) per mata kuliah from the shared
 // LMS/seed-data/curriculum-seed.json dataset. Requires seed.php to have run
 // first (courses, dosen, mahasiswa must already exist). Safe to re-run:
 // existing activities with the same name are left alone.
@@ -9,6 +10,7 @@ define('CLI_SCRIPT', true);
 require(__DIR__ . '/../config.php');
 require_once($CFG->dirroot . '/course/lib.php');
 require_once($CFG->dirroot . '/mod/quiz/locallib.php');
+require_once($CFG->dirroot . '/mod/assign/locallib.php');
 require_once($CFG->dirroot . '/lib/enrollib.php');
 require_once($CFG->dirroot . '/lib/testing/generator/component_generator_base.php');
 require_once($CFG->dirroot . '/lib/testing/generator/module_generator.php');
@@ -86,6 +88,7 @@ if ($data === null) {
 $generator = new testing_data_generator();
 $questioncatgenerator = $generator->get_plugin_generator('core_question');
 $forumgenerator = $generator->get_plugin_generator('mod_forum');
+$assigngenerator = $generator->get_plugin_generator('mod_assign');
 
 function seed_userid(string $username): int {
     global $DB;
@@ -186,6 +189,46 @@ foreach ($data['courseContent'] as $shortname => $content) {
         mtrace("  created forum: {$forumdef['name']} (1 diskusi + " . count($forumdef['replies']) . " balasan)");
     } else {
         mtrace("  forum exists: {$forumdef['name']}");
+    }
+
+    // 4. Assignment requiring a file upload submission, placed in section 1.
+    $assigndef = $content['assignment'];
+    $assign = $DB->get_record('assign', ['course' => $course->id, 'name' => $assigndef['name']]);
+    if (!$assign) {
+        $assign = $generator->create_module('assign', [
+            'course' => $course->id,
+            'section' => 1,
+            'name' => $assigndef['name'],
+            'intro' => $assigndef['intro'],
+            'introformat' => FORMAT_HTML,
+            'duedate' => time() + ($assigndef['duedays'] ?? 14) * DAYSECS,
+            'submissiondrafts' => 0,
+            'assignsubmission_onlinetext_enabled' => 0,
+            'assignsubmission_file_enabled' => 1,
+            'assignsubmission_file_maxfiles' => 5,
+        ]);
+        $assigncm = get_coursemodule_from_instance('assign', $assign->id, $course->id);
+
+        $tmpdir = $CFG->dirroot . '/seed-submissions-tmp';
+        if (!is_dir($tmpdir)) {
+            mkdir($tmpdir, 0777, true);
+        }
+
+        foreach ($assigndef['submissions'] as $sub) {
+            $relpath = 'seed-submissions-tmp/' . $sub['filename'];
+            file_put_contents($CFG->dirroot . '/' . $relpath, $sub['content']);
+            $assigngenerator->create_submission([
+                'userid' => seed_userid($sub['student']),
+                'cmid' => $assigncm->id,
+                'file' => $relpath,
+            ]);
+            unlink($CFG->dirroot . '/' . $relpath);
+        }
+        @rmdir($tmpdir);
+
+        mtrace("  created assignment: {$assigndef['name']} (" . count($assigndef['submissions']) . " submission)");
+    } else {
+        mtrace("  assignment exists: {$assigndef['name']}");
     }
 }
 
