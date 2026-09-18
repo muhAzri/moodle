@@ -25,6 +25,7 @@ services:
     volumes:
       - .:/var/www/html
       - moodledata:/var/www/moodledata
+      - ../seed-data:/var/www/seed-data:ro
 
 volumes:
   db_data:
